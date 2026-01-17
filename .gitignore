@@ -14,11 +14,27 @@ Thumbs.db
 *.swo
 *~
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+.venv/
+ENV/
+
+# Database
+*.db
+*.sqlite3
+
 # Logs
 *.log
 npm-debug.log*
 
-# Optional: Local development
+# Environment
 .env
 .env.local
+
+# Flask
+instance/
 

@@ -1,57 +1,73 @@
 /**
  * SplitTrip - Expense Tracker
  * A mobile-friendly app for splitting trip expenses equally
- * Data stored in CSV format
+ * Supports multiple trips with automatic CSV file management
  */
 
 // ===================================
-// Data Management
+// Constants & State
 // ===================================
 
-const STORAGE_KEY = 'splittrip_data';
+const DB_NAME = 'SplitTripDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'folderHandle';
 
-const defaultData = {
-    trip: {
-        name: '',
-        currency: '₹',
-        members: []
-    },
+let db = null;
+let directoryHandle = null;
+let currentTripFileHandle = null;
+let currentTripFileName = null;
+
+let appData = {
+    trip: { name: '', currency: '₹', members: [] },
     expenses: []
 };
 
-let appData = loadFromLocalStorage();
-let csvFileHandle = null; // For File System Access API
+// ===================================
+// IndexedDB for storing folder handle
+// ===================================
 
-function loadFromLocalStorage() {
-    try {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-            return JSON.parse(saved);
-        }
-    } catch (e) {
-        console.error('Error loading data:', e);
-    }
-    return JSON.parse(JSON.stringify(defaultData));
+async function initDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+            db = request.result;
+            resolve(db);
+        };
+        
+        request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+                db.createObjectStore(STORE_NAME);
+            }
+        };
+    });
 }
 
-function saveToLocalStorage() {
-    try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
-    } catch (e) {
-        console.error('Error saving data:', e);
-    }
+async function saveFolderHandle(handle) {
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const request = store.put(handle, 'directoryHandle');
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+    });
+}
+
+async function loadFolderHandle() {
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const request = store.get('directoryHandle');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
 }
 
 // ===================================
 // CSV Handling
 // ===================================
-
-/**
- * CSV Format:
- * Line 1: #TRIP,<name>,<currency>,<member1>|<member2>|...
- * Line 2: #HEADERS,id,description,amount,paidBy,splitBetween,timestamp
- * Line 3+: <expense data>
- */
 
 function dataToCSV() {
     const { trip, expenses } = appData;
@@ -84,13 +100,15 @@ function dataToCSV() {
 
 function csvToData(csvText) {
     const lines = csvText.trim().split('\n');
-    const newData = JSON.parse(JSON.stringify(defaultData));
+    const newData = {
+        trip: { name: '', currency: '₹', members: [] },
+        expenses: []
+    };
     
     for (const line of lines) {
         if (!line.trim()) continue;
         
         if (line.startsWith('#TRIP')) {
-            // Parse trip info: #TRIP,"name","currency","member1|member2"
             const match = line.match(/#TRIP,(?:"([^"]*)"|([^,]*)),(?:"([^"]*)"|([^,]*)),(?:"([^"]*)"|([^,]*))/);
             if (match) {
                 newData.trip.name = match[1] || match[2] || '';
@@ -99,10 +117,8 @@ function csvToData(csvText) {
                 newData.trip.members = membersStr ? membersStr.split('|').filter(m => m.trim()) : [];
             }
         } else if (line.startsWith('#HEADERS')) {
-            // Skip headers line
             continue;
         } else {
-            // Parse expense line
             const parts = parseCSVLine(line);
             if (parts.length >= 6) {
                 newData.expenses.push({
@@ -127,7 +143,6 @@ function parseCSVLine(line) {
     
     for (let i = 0; i < line.length; i++) {
         const char = line[i];
-        
         if (char === '"') {
             inQuotes = !inQuotes;
         } else if (char === ',' && !inQuotes) {
@@ -138,7 +153,6 @@ function parseCSVLine(line) {
         }
     }
     result.push(current);
-    
     return result;
 }
 
@@ -151,147 +165,166 @@ function escapeCsvField(str) {
     return s;
 }
 
-// Load CSV from file
-async function loadCSVFile() {
+function sanitizeFileName(name) {
+    return name.replace(/[^a-zA-Z0-9_\-\s]/g, '').trim().replace(/\s+/g, '_');
+}
+
+// ===================================
+// File System Operations
+// ===================================
+
+async function requestFolderAccess() {
     try {
-        // Check if File System Access API is available
-        if ('showOpenFilePicker' in window) {
-            const [fileHandle] = await window.showOpenFilePicker({
-                types: [{
-                    description: 'CSV Files',
-                    accept: { 'text/csv': ['.csv'] }
-                }],
-                multiple: false
-            });
-            
-            csvFileHandle = fileHandle;
-            const file = await fileHandle.getFile();
-            const text = await file.text();
-            
-            appData = csvToData(text);
-            saveToLocalStorage();
-            renderUI();
-            updateCsvStatus(fileHandle.name);
-            showToast('CSV loaded successfully!', 'success');
-            
-        } else {
-            // Fallback: Use file input
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = '.csv';
-            input.onchange = async (e) => {
-                const file = e.target.files[0];
-                if (file) {
-                    const text = await file.text();
-                    appData = csvToData(text);
-                    saveToLocalStorage();
-                    renderUI();
-                    updateCsvStatus(file.name + ' (read-only)');
-                    showToast('CSV loaded! Export to save changes.', 'success');
-                }
-            };
-            input.click();
-        }
+        directoryHandle = await window.showDirectoryPicker({
+            mode: 'readwrite'
+        });
+        await saveFolderHandle(directoryHandle);
+        return true;
     } catch (e) {
         if (e.name !== 'AbortError') {
-            console.error('Error loading CSV:', e);
-            showToast('Error loading CSV file', 'error');
+            console.error('Error accessing folder:', e);
+            showToast('Error accessing folder', 'error');
         }
+        return false;
     }
 }
 
-// Save CSV to file
-async function saveCSVFile() {
+async function verifyFolderPermission() {
+    if (!directoryHandle) return false;
+    
+    try {
+        const permission = await directoryHandle.queryPermission({ mode: 'readwrite' });
+        if (permission === 'granted') return true;
+        
+        const requestResult = await directoryHandle.requestPermission({ mode: 'readwrite' });
+        return requestResult === 'granted';
+    } catch (e) {
+        return false;
+    }
+}
+
+async function listTripFiles() {
+    if (!directoryHandle) return [];
+    
+    const trips = [];
+    try {
+        for await (const entry of directoryHandle.values()) {
+            if (entry.kind === 'file' && entry.name.endsWith('.csv')) {
+                const file = await entry.getFile();
+                const text = await file.text();
+                
+                // Parse trip name from CSV
+                const match = text.match(/#TRIP,(?:"([^"]*)"|([^,]*))/);
+                const tripName = match ? (match[1] || match[2] || entry.name) : entry.name.replace('.csv', '');
+                
+                trips.push({
+                    fileName: entry.name,
+                    tripName: tripName,
+                    lastModified: file.lastModified
+                });
+            }
+        }
+    } catch (e) {
+        console.error('Error listing files:', e);
+    }
+    
+    // Sort by last modified, newest first
+    trips.sort((a, b) => b.lastModified - a.lastModified);
+    return trips;
+}
+
+async function createTripFile(tripName, currency, members) {
+    if (!directoryHandle) {
+        showToast('No folder access', 'error');
+        return false;
+    }
+    
+    const fileName = sanitizeFileName(tripName) + '.csv';
+    
+    try {
+        // Check if file already exists
+        try {
+            await directoryHandle.getFileHandle(fileName);
+            showToast('A trip with this name already exists', 'error');
+            return false;
+        } catch (e) {
+            // File doesn't exist, good to create
+        }
+        
+        // Create new file
+        const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
+        
+        // Set up app data
+        appData = {
+            trip: { name: tripName, currency, members },
+            expenses: []
+        };
+        
+        // Write to file
+        const csvContent = dataToCSV();
+        const writable = await fileHandle.createWritable();
+        await writable.write(csvContent);
+        await writable.close();
+        
+        currentTripFileHandle = fileHandle;
+        currentTripFileName = fileName;
+        
+        return true;
+    } catch (e) {
+        console.error('Error creating trip file:', e);
+        showToast('Error creating trip file', 'error');
+        return false;
+    }
+}
+
+async function loadTripFile(fileName) {
+    if (!directoryHandle) return false;
+    
+    try {
+        const fileHandle = await directoryHandle.getFileHandle(fileName);
+        const file = await fileHandle.getFile();
+        const text = await file.text();
+        
+        appData = csvToData(text);
+        currentTripFileHandle = fileHandle;
+        currentTripFileName = fileName;
+        
+        return true;
+    } catch (e) {
+        console.error('Error loading trip file:', e);
+        showToast('Error loading trip', 'error');
+        return false;
+    }
+}
+
+async function saveCurrentTrip() {
+    if (!currentTripFileHandle) return;
+    
     try {
         const csvContent = dataToCSV();
-        
-        // Check if File System Access API is available
-        if ('showSaveFilePicker' in window) {
-            const options = {
-                suggestedName: `${appData.trip.name || 'expenses'}.csv`,
-                types: [{
-                    description: 'CSV Files',
-                    accept: { 'text/csv': ['.csv'] }
-                }]
-            };
-            
-            // If we have an existing file handle, try to write to it
-            let fileHandle;
-            if (csvFileHandle) {
-                try {
-                    // Verify we still have permission
-                    const permission = await csvFileHandle.queryPermission({ mode: 'readwrite' });
-                    if (permission === 'granted') {
-                        fileHandle = csvFileHandle;
-                    }
-                } catch (e) {
-                    // Permission lost, show picker
-                }
-            }
-            
-            if (!fileHandle) {
-                fileHandle = await window.showSaveFilePicker(options);
-                csvFileHandle = fileHandle;
-            }
-            
-            const writable = await fileHandle.createWritable();
-            await writable.write(csvContent);
-            await writable.close();
-            
-            updateCsvStatus(fileHandle.name);
-            showToast('CSV saved!', 'success');
-            
-        } else {
-            // Fallback: Download file
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `${appData.trip.name || 'expenses'}.csv`;
-            link.click();
-            URL.revokeObjectURL(url);
-            showToast('CSV downloaded!', 'success');
-        }
+        const writable = await currentTripFileHandle.createWritable();
+        await writable.write(csvContent);
+        await writable.close();
     } catch (e) {
-        if (e.name !== 'AbortError') {
-            console.error('Error saving CSV:', e);
-            showToast('Error saving CSV file', 'error');
-        }
+        console.error('Error saving trip:', e);
+        showToast('Error saving changes', 'error');
     }
 }
 
-// Auto-save to CSV if we have a file handle
-async function autoSaveCSV() {
-    if (csvFileHandle) {
-        try {
-            const permission = await csvFileHandle.queryPermission({ mode: 'readwrite' });
-            if (permission === 'granted') {
-                const csvContent = dataToCSV();
-                const writable = await csvFileHandle.createWritable();
-                await writable.write(csvContent);
-                await writable.close();
-            }
-        } catch (e) {
-            console.error('Auto-save failed:', e);
-        }
+async function deleteCurrentTrip() {
+    if (!directoryHandle || !currentTripFileName) return false;
+    
+    try {
+        await directoryHandle.removeEntry(currentTripFileName);
+        currentTripFileHandle = null;
+        currentTripFileName = null;
+        appData = { trip: { name: '', currency: '₹', members: [] }, expenses: [] };
+        return true;
+    } catch (e) {
+        console.error('Error deleting trip:', e);
+        showToast('Error deleting trip', 'error');
+        return false;
     }
-}
-
-function updateCsvStatus(filename) {
-    const statusEl = document.getElementById('csvStatus');
-    if (filename) {
-        statusEl.textContent = `📄 ${filename}`;
-        statusEl.classList.add('active');
-    } else {
-        statusEl.textContent = 'No file loaded - using browser storage';
-        statusEl.classList.remove('active');
-    }
-}
-
-// Combined save function
-function saveData() {
-    saveToLocalStorage();
-    autoSaveCSV();
 }
 
 // ===================================
@@ -299,14 +332,38 @@ function saveData() {
 // ===================================
 
 const elements = {
+    // Screens
+    tripSelectorScreen: document.getElementById('tripSelectorScreen'),
+    appContainer: document.getElementById('appContainer'),
+    
+    // Folder Access
+    folderAccessSection: document.getElementById('folderAccessSection'),
+    tripSelectionSection: document.getElementById('tripSelectionSection'),
+    grantFolderAccessBtn: document.getElementById('grantFolderAccessBtn'),
+    changeFolderBtn: document.getElementById('changeFolderBtn'),
+    folderPath: document.getElementById('folderPath'),
+    
+    // Trip Selection
+    createNewTripBtn: document.getElementById('createNewTripBtn'),
+    tripsList: document.getElementById('tripsList'),
+    
+    // New Trip Modal
+    newTripModal: document.getElementById('newTripModal'),
+    closeNewTripModal: document.getElementById('closeNewTripModal'),
+    newTripForm: document.getElementById('newTripForm'),
+    newTripName: document.getElementById('newTripName'),
+    newTripCurrency: document.getElementById('newTripCurrency'),
+    newTripMembersInput: document.getElementById('newTripMembersInput'),
+    newTripAddMemberBtn: document.getElementById('newTripAddMemberBtn'),
+    
     // Header
+    backToTripsBtn: document.getElementById('backToTripsBtn'),
     settingsBtn: document.getElementById('settingsBtn'),
     
     // Trip Banner
     tripName: document.getElementById('tripName'),
     tripMembers: document.getElementById('tripMembers'),
     totalAmount: document.getElementById('totalAmount'),
-    currencySymbol: document.getElementById('currencySymbol'),
     
     // Tabs
     tabs: document.querySelectorAll('.tab'),
@@ -316,7 +373,6 @@ const elements = {
     expensesList: document.getElementById('expensesList'),
     balancesList: document.getElementById('balancesList'),
     settleList: document.getElementById('settleList'),
-    emptyExpenses: document.getElementById('emptyExpenses'),
     
     // FAB
     addExpenseBtn: document.getElementById('addExpenseBtn'),
@@ -330,6 +386,7 @@ const elements = {
     paidBy: document.getElementById('paidBy'),
     splitOptions: document.getElementById('splitOptions'),
     selectAllBtn: document.getElementById('selectAllBtn'),
+    currencySymbol: document.getElementById('currencySymbol'),
     
     // Settings Modal
     settingsModal: document.getElementById('settingsModal'),
@@ -339,9 +396,7 @@ const elements = {
     currencySelect: document.getElementById('currencySelect'),
     membersInput: document.getElementById('membersInput'),
     addMemberBtn: document.getElementById('addMemberBtn'),
-    clearDataBtn: document.getElementById('clearDataBtn'),
-    loadCsvBtn: document.getElementById('loadCsvBtn'),
-    saveCsvBtn: document.getElementById('saveCsvBtn'),
+    deleteTripBtn: document.getElementById('deleteTripBtn'),
     
     // Toast
     toast: document.getElementById('toast')
@@ -351,17 +406,50 @@ const elements = {
 // Initialization
 // ===================================
 
-function init() {
-    setupEventListeners();
-    renderUI();
-    
-    // Show settings modal if no trip configured
-    if (!appData.trip.name || appData.trip.members.length === 0) {
-        setTimeout(() => openSettingsModal(), 500);
+async function init() {
+    // Check if File System Access API is supported
+    if (!('showDirectoryPicker' in window)) {
+        showToast('Your browser does not support folder access. Please use Chrome or Edge.', 'error');
+        return;
     }
+    
+    await initDB();
+    
+    // Try to load saved folder handle
+    try {
+        directoryHandle = await loadFolderHandle();
+        if (directoryHandle && await verifyFolderPermission()) {
+            showTripSelection();
+        } else {
+            directoryHandle = null;
+            showFolderAccess();
+        }
+    } catch (e) {
+        showFolderAccess();
+    }
+    
+    setupEventListeners();
 }
 
 function setupEventListeners() {
+    // Folder Access
+    elements.grantFolderAccessBtn.addEventListener('click', handleGrantFolderAccess);
+    elements.changeFolderBtn.addEventListener('click', handleGrantFolderAccess);
+    
+    // Trip Selection
+    elements.createNewTripBtn.addEventListener('click', openNewTripModal);
+    
+    // New Trip Modal
+    elements.closeNewTripModal.addEventListener('click', closeNewTripModal);
+    elements.newTripModal.addEventListener('click', (e) => {
+        if (e.target === elements.newTripModal) closeNewTripModal();
+    });
+    elements.newTripForm.addEventListener('submit', handleCreateNewTrip);
+    elements.newTripAddMemberBtn.addEventListener('click', () => addMemberRowTo(elements.newTripMembersInput));
+    
+    // Back to trips
+    elements.backToTripsBtn.addEventListener('click', backToTripSelector);
+    
     // Tabs
     elements.tabs.forEach(tab => {
         tab.addEventListener('click', () => switchTab(tab.dataset.tab));
@@ -387,22 +475,148 @@ function setupEventListeners() {
         if (e.target === elements.settingsModal) closeSettingsModal();
     });
     elements.settingsForm.addEventListener('submit', handleSaveSettings);
-    elements.addMemberBtn.addEventListener('click', addMemberRow);
-    elements.clearDataBtn.addEventListener('click', handleClearData);
+    elements.addMemberBtn.addEventListener('click', () => addMemberRowTo(elements.membersInput, true));
+    elements.deleteTripBtn.addEventListener('click', handleDeleteTrip);
+}
+
+// ===================================
+// Screen Navigation
+// ===================================
+
+function showFolderAccess() {
+    elements.folderAccessSection.style.display = 'block';
+    elements.tripSelectionSection.style.display = 'none';
+}
+
+async function showTripSelection() {
+    elements.folderAccessSection.style.display = 'none';
+    elements.tripSelectionSection.style.display = 'block';
+    elements.folderPath.textContent = directoryHandle.name;
     
-    // CSV buttons
-    elements.loadCsvBtn.addEventListener('click', loadCSVFile);
-    elements.saveCsvBtn.addEventListener('click', saveCSVFile);
+    await refreshTripsList();
+}
+
+async function refreshTripsList() {
+    const trips = await listTripFiles();
     
-    // Prevent body scroll when modal is open
-    document.addEventListener('touchmove', (e) => {
-        if (document.querySelector('.modal-overlay.active')) {
-            const modal = document.querySelector('.modal');
-            if (!modal.contains(e.target)) {
-                e.preventDefault();
-            }
-        }
-    }, { passive: false });
+    if (trips.length === 0) {
+        elements.tripsList.innerHTML = `
+            <div class="empty-trips">
+                <p>No trips yet. Create your first trip!</p>
+            </div>
+        `;
+        return;
+    }
+    
+    elements.tripsList.innerHTML = trips.map(trip => `
+        <div class="trip-card" data-filename="${trip.fileName}">
+            <div class="trip-card-info">
+                <span class="trip-card-name">${escapeHtml(trip.tripName)}</span>
+                <span class="trip-card-meta">${new Date(trip.lastModified).toLocaleDateString()}</span>
+            </div>
+            <span class="trip-card-arrow">→</span>
+        </div>
+    `).join('');
+    
+    // Add click handlers
+    elements.tripsList.querySelectorAll('.trip-card').forEach(card => {
+        card.addEventListener('click', () => openTrip(card.dataset.filename));
+    });
+}
+
+function showMainApp() {
+    elements.tripSelectorScreen.style.display = 'none';
+    elements.appContainer.style.display = 'flex';
+    renderUI();
+}
+
+function backToTripSelector() {
+    elements.appContainer.style.display = 'none';
+    elements.tripSelectorScreen.style.display = 'block';
+    currentTripFileHandle = null;
+    currentTripFileName = null;
+    refreshTripsList();
+}
+
+// ===================================
+// Folder Access Handlers
+// ===================================
+
+async function handleGrantFolderAccess() {
+    const success = await requestFolderAccess();
+    if (success) {
+        showTripSelection();
+    }
+}
+
+// ===================================
+// New Trip Modal
+// ===================================
+
+function openNewTripModal() {
+    // Reset form
+    elements.newTripForm.reset();
+    elements.newTripMembersInput.innerHTML = '';
+    
+    // Add 4 default member rows
+    for (let i = 0; i < 4; i++) {
+        addMemberRowTo(elements.newTripMembersInput, false, i === 0);
+    }
+    
+    elements.newTripModal.classList.add('active');
+    elements.newTripName.focus();
+}
+
+function closeNewTripModal() {
+    elements.newTripModal.classList.remove('active');
+}
+
+async function handleCreateNewTrip(e) {
+    e.preventDefault();
+    
+    const tripName = elements.newTripName.value.trim();
+    const currency = elements.newTripCurrency.value;
+    
+    const memberInputs = elements.newTripMembersInput.querySelectorAll('.member-name');
+    const members = Array.from(memberInputs)
+        .map(input => input.value.trim())
+        .filter(name => name.length > 0);
+    
+    // Validation
+    if (!tripName) {
+        showToast('Please enter a trip name', 'error');
+        return;
+    }
+    
+    if (members.length < 4) {
+        showToast('Please add at least 4 members', 'error');
+        return;
+    }
+    
+    const uniqueMembers = [...new Set(members)];
+    if (uniqueMembers.length !== members.length) {
+        showToast('Member names must be unique', 'error');
+        return;
+    }
+    
+    // Create trip file
+    const success = await createTripFile(tripName, currency, uniqueMembers);
+    if (success) {
+        closeNewTripModal();
+        showMainApp();
+        showToast('Trip created!', 'success');
+    }
+}
+
+// ===================================
+// Open Existing Trip
+// ===================================
+
+async function openTrip(fileName) {
+    const success = await loadTripFile(fileName);
+    if (success) {
+        showMainApp();
+    }
 }
 
 // ===================================
@@ -418,7 +632,6 @@ function switchTab(tabName) {
         content.classList.toggle('active', content.id === `${tabName}-tab`);
     });
     
-    // Refresh content when switching tabs
     if (tabName === 'balances') renderBalances();
     if (tabName === 'settle') renderSettlements();
 }
@@ -461,7 +674,6 @@ function renderExpenses() {
         return;
     }
     
-    // Sort by date, newest first
     const sorted = [...expenses].sort((a, b) => b.timestamp - a.timestamp);
     
     elements.expensesList.innerHTML = sorted.map(expense => `
@@ -497,7 +709,6 @@ function renderBalances() {
         return;
     }
     
-    // Sort by balance amount
     const sorted = Object.entries(balances).sort((a, b) => b[1] - a[1]);
     
     elements.balancesList.innerHTML = sorted.map(([name, balance]) => {
@@ -563,21 +774,17 @@ function calculateBalances() {
     const { expenses, trip } = appData;
     const balances = {};
     
-    // Initialize all members with 0 balance
     trip.members.forEach(member => {
         balances[member] = 0;
     });
     
-    // Calculate balances from expenses
     expenses.forEach(expense => {
         const splitAmount = expense.amount / expense.splitBetween.length;
         
-        // Person who paid gets credit
         if (balances[expense.paidBy] !== undefined) {
             balances[expense.paidBy] += expense.amount;
         }
         
-        // Each person in the split owes their share
         expense.splitBetween.forEach(person => {
             if (balances[person] !== undefined) {
                 balances[person] -= splitAmount;
@@ -592,7 +799,6 @@ function calculateSettlements() {
     const balances = calculateBalances();
     const settlements = [];
     
-    // Create arrays of debtors (negative balance) and creditors (positive balance)
     const debtors = [];
     const creditors = [];
     
@@ -604,17 +810,14 @@ function calculateSettlements() {
         }
     });
     
-    // Sort to optimize (largest debts first)
     debtors.sort((a, b) => b.amount - a.amount);
     creditors.sort((a, b) => b.amount - a.amount);
     
-    // Match debtors with creditors
     let i = 0, j = 0;
     
     while (i < debtors.length && j < creditors.length) {
         const debtor = debtors[i];
         const creditor = creditors[j];
-        
         const amount = Math.min(debtor.amount, creditor.amount);
         
         if (amount > 0.01) {
@@ -659,11 +862,9 @@ function closeExpenseModal() {
 function populateExpenseForm() {
     const { members } = appData.trip;
     
-    // Populate "Paid by" select
     elements.paidBy.innerHTML = '<option value="">Select who paid</option>' +
         members.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
     
-    // Populate split options with all members checked by default
     elements.splitOptions.innerHTML = members.map(m => `
         <label class="split-option">
             <input type="checkbox" name="split" value="${escapeHtml(m)}" checked>
@@ -676,14 +877,11 @@ function toggleSelectAll() {
     const checkboxes = elements.splitOptions.querySelectorAll('input[type="checkbox"]');
     const allChecked = Array.from(checkboxes).every(cb => cb.checked);
     
-    checkboxes.forEach(cb => {
-        cb.checked = !allChecked;
-    });
-    
+    checkboxes.forEach(cb => { cb.checked = !allChecked; });
     elements.selectAllBtn.textContent = allChecked ? 'Select All' : 'Deselect All';
 }
 
-function handleAddExpense(e) {
+async function handleAddExpense(e) {
     e.preventDefault();
     
     const description = elements.expenseDesc.value.trim();
@@ -693,7 +891,6 @@ function handleAddExpense(e) {
     const splitCheckboxes = elements.splitOptions.querySelectorAll('input[type="checkbox"]:checked');
     const splitBetween = Array.from(splitCheckboxes).map(cb => cb.value);
     
-    // Validation
     if (!description) {
         showToast('Please enter a description', 'error');
         return;
@@ -714,7 +911,6 @@ function handleAddExpense(e) {
         return;
     }
     
-    // Create expense
     const expense = {
         id: generateId(),
         description,
@@ -725,23 +921,22 @@ function handleAddExpense(e) {
     };
     
     appData.expenses.push(expense);
-    saveData();
+    await saveCurrentTrip();
     renderUI();
     closeExpenseModal();
     
     showToast('Expense added!', 'success');
 }
 
-function deleteExpense(id) {
+async function deleteExpense(id) {
     if (confirm('Delete this expense?')) {
         appData.expenses = appData.expenses.filter(e => e.id !== id);
-        saveData();
+        await saveCurrentTrip();
         renderUI();
         showToast('Expense deleted', 'success');
     }
 }
 
-// Make deleteExpense available globally
 window.deleteExpense = deleteExpense;
 
 // ===================================
@@ -763,30 +958,21 @@ function populateSettingsForm() {
     elements.tripNameInput.value = trip.name || '';
     elements.currencySelect.value = trip.currency || '₹';
     
-    // Populate members
     elements.membersInput.innerHTML = '';
     
     if (trip.members.length > 0) {
         trip.members.forEach((member, index) => {
-            addMemberRowWithValue(member, index === 0);
+            addMemberRowTo(elements.membersInput, true, index === 0, member);
         });
     } else {
-        // Add 4 empty rows for new trip (minimum members)
         for (let i = 0; i < 4; i++) {
-            addMemberRow();
+            addMemberRowTo(elements.membersInput, true, i === 0);
         }
     }
-    
-    updateRemoveButtons();
 }
 
-function addMemberRow() {
-    addMemberRowWithValue('', false);
-    updateRemoveButtons();
-}
-
-function addMemberRowWithValue(value, isFirst) {
-    const memberRows = elements.membersInput.querySelectorAll('.member-row').length;
+function addMemberRowTo(container, isSettings = false, isFirst = false, value = '') {
+    const memberRows = container.querySelectorAll('.member-row').length;
     
     if (memberRows >= 10) {
         showToast('Maximum 10 members allowed', 'error');
@@ -797,40 +983,34 @@ function addMemberRowWithValue(value, isFirst) {
     row.className = 'member-row';
     row.innerHTML = `
         <input type="text" class="member-name" placeholder="Member ${memberRows + 1} name" value="${escapeHtml(value)}" required>
-        <button type="button" class="btn-remove-member" ${isFirst ? 'disabled' : ''}>&times;</button>
+        <button type="button" class="btn-remove-member">&times;</button>
     `;
     
     row.querySelector('.btn-remove-member').addEventListener('click', () => {
-        row.remove();
-        updateRemoveButtons();
-        updatePlaceholders();
+        const rows = container.querySelectorAll('.member-row');
+        if (rows.length > 4) {
+            row.remove();
+            updateMemberRowsState(container);
+        } else {
+            showToast('Minimum 4 members required', 'error');
+        }
     });
     
-    elements.membersInput.appendChild(row);
+    container.appendChild(row);
+    updateMemberRowsState(container);
 }
 
-function updateRemoveButtons() {
-    const rows = elements.membersInput.querySelectorAll('.member-row');
-    const minMembers = 4;
-    
+function updateMemberRowsState(container) {
+    const rows = container.querySelectorAll('.member-row');
     rows.forEach((row, index) => {
+        const input = row.querySelector('.member-name');
         const btn = row.querySelector('.btn-remove-member');
-        btn.disabled = rows.length <= minMembers;
-    });
-    
-    // Update add button state
-    elements.addMemberBtn.disabled = rows.length >= 10;
-    elements.addMemberBtn.textContent = rows.length >= 10 ? 'Max 10 members' : '+ Add Member';
-}
-
-function updatePlaceholders() {
-    const inputs = elements.membersInput.querySelectorAll('.member-name');
-    inputs.forEach((input, index) => {
         input.placeholder = `Member ${index + 1} name`;
+        btn.disabled = rows.length <= 4;
     });
 }
 
-function handleSaveSettings(e) {
+async function handleSaveSettings(e) {
     e.preventDefault();
     
     const tripName = elements.tripNameInput.value.trim();
@@ -841,7 +1021,6 @@ function handleSaveSettings(e) {
         .map(input => input.value.trim())
         .filter(name => name.length > 0);
     
-    // Validation
     if (!tripName) {
         showToast('Please enter a trip name', 'error');
         return;
@@ -852,16 +1031,15 @@ function handleSaveSettings(e) {
         return;
     }
     
-    // Check for duplicate names
     const uniqueMembers = [...new Set(members)];
     if (uniqueMembers.length !== members.length) {
         showToast('Member names must be unique', 'error');
         return;
     }
     
-    // Check if member names changed and there are expenses
+    // Check if members changed with existing expenses
     const oldMembers = appData.trip.members;
-    const membersChanged = JSON.stringify(oldMembers.sort()) !== JSON.stringify(uniqueMembers.sort());
+    const membersChanged = JSON.stringify([...oldMembers].sort()) !== JSON.stringify([...uniqueMembers].sort());
     
     if (membersChanged && appData.expenses.length > 0) {
         if (!confirm('Changing members will clear all expenses. Continue?')) {
@@ -870,30 +1048,25 @@ function handleSaveSettings(e) {
         appData.expenses = [];
     }
     
-    // Save settings
     appData.trip.name = tripName;
     appData.trip.currency = currency;
     appData.trip.members = uniqueMembers;
     
-    saveData();
+    await saveCurrentTrip();
     renderUI();
     closeSettingsModal();
     
     showToast('Settings saved!', 'success');
 }
 
-function handleClearData() {
-    if (confirm('This will delete ALL data including expenses. Are you sure?')) {
-        if (confirm('Really delete everything? This cannot be undone!')) {
-            appData = JSON.parse(JSON.stringify(defaultData));
-            csvFileHandle = null;
-            saveToLocalStorage();
-            updateCsvStatus(null);
-            renderUI();
-            closeSettingsModal();
-            showToast('All data cleared', 'success');
-            
-            setTimeout(() => openSettingsModal(), 300);
+async function handleDeleteTrip() {
+    if (confirm('Delete this trip and all its expenses?')) {
+        if (confirm('This cannot be undone. Are you sure?')) {
+            const success = await deleteCurrentTrip();
+            if (success) {
+                showToast('Trip deleted', 'success');
+                backToTripSelector();
+            }
         }
     }
 }
@@ -934,3 +1107,4 @@ function showToast(message, type = 'info') {
 // ===================================
 
 document.addEventListener('DOMContentLoaded', init);
+

@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#1a1a2e">
+    <meta name="theme-color" content="#0d0d14">
     <title>SplitTrip - Expense Tracker</title>
     <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💸</text></svg>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <!-- Trip Selector Screen (shows first) -->
@@ -24,38 +24,19 @@
             </div>
             
             <div class="trip-selector-content">
-                <!-- Folder Access Required -->
-                <div class="folder-access-section" id="folderAccessSection">
-                    <div class="folder-access-card">
-                        <span class="folder-icon">📁</span>
-                        <h3>Grant Folder Access</h3>
-                        <p>Allow SplitTrip to save trip files in a folder of your choice</p>
-                        <button class="btn-primary" id="grantFolderAccessBtn">Select Folder</button>
-                    </div>
-                </div>
+                <button class="btn-new-trip" id="createNewTripBtn">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    Create New Trip
+                </button>
                 
-                <!-- Trip Selection (shows after folder access) -->
-                <div class="trip-selection-section" id="tripSelectionSection" style="display: none;">
-                    <div class="folder-info" id="folderInfo">
-                        <span class="folder-badge">📂</span>
-                        <span class="folder-path" id="folderPath">expense-tracker</span>
-                        <button class="btn-change-folder" id="changeFolderBtn">Change</button>
-                    </div>
-                    
-                    <button class="btn-new-trip" id="createNewTripBtn">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <line x1="12" y1="5" x2="12" y2="19"></line>
-                            <line x1="5" y1="12" x2="19" y2="12"></line>
-                        </svg>
-                        Create New Trip
-                    </button>
-                    
-                    <div class="existing-trips-section">
-                        <h3>Your Trips</h3>
-                        <div class="trips-list" id="tripsList">
-                            <div class="empty-trips">
-                                <p>No trips yet. Create your first trip!</p>
-                            </div>
+                <div class="existing-trips-section">
+                    <h3>Your Trips</h3>
+                    <div class="trips-list" id="tripsList">
+                        <div class="loading-state">
+                            <p>Loading trips...</p>
                         </div>
                     </div>
                 </div>
@@ -107,7 +88,7 @@
             <!-- Expenses Tab -->
             <section class="tab-content active" id="expenses-tab">
                 <div class="expenses-list" id="expensesList">
-                    <div class="empty-state" id="emptyExpenses">
+                    <div class="empty-state">
                         <span class="empty-icon">🧾</span>
                         <p>No expenses yet</p>
                         <p class="empty-hint">Tap + to add your first expense</p>
@@ -156,7 +137,6 @@
                 <div class="form-group">
                     <label for="newTripName">Trip Name</label>
                     <input type="text" id="newTripName" placeholder="e.g., Goa Trip 2026" required>
-                    <p class="form-hint">This will be used as the CSV filename</p>
                 </div>
                 <div class="form-group">
                     <label for="newTripCurrency">Currency</label>
@@ -169,6 +149,7 @@
                         <option value="A$">A$ AUD (Australian Dollar)</option>
                         <option value="C$">C$ CAD (Canadian Dollar)</option>
                         <option value="฿">฿ THB (Thai Baht)</option>
+                        <option value="RM">RM MYR (Malaysian Ringgit)</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -243,15 +224,13 @@
                         <option value="A$">A$ AUD (Australian Dollar)</option>
                         <option value="C$">C$ CAD (Canadian Dollar)</option>
                         <option value="฿">฿ THB (Thai Baht)</option>
+                        <option value="RM">RM MYR (Malaysian Ringgit)</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label>Members (4-10 people)</label>
                     <div class="members-input" id="membersInput">
-                        <div class="member-row">
-                            <input type="text" class="member-name" placeholder="Member 1 name" required>
-                            <button type="button" class="btn-remove-member" disabled>&times;</button>
-                        </div>
+                        <!-- Member rows added dynamically -->
                     </div>
                     <button type="button" class="btn-secondary" id="addMemberBtn">+ Add Member</button>
                 </div>
@@ -269,6 +248,7 @@
     <!-- Toast Notification -->
     <div class="toast" id="toast"></div>
 
-    <script src="app.js"></script>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
+

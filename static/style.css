@@ -321,6 +321,16 @@ body {
     font-size: 0.9rem;
 }
 
+.loading-state {
+    text-align: center;
+    padding: var(--space-xl);
+    color: var(--text-muted);
+}
+
+.loading-state p {
+    font-size: 0.9rem;
+}
+
 /* Back Button */
 .btn-back {
     width: 44px;

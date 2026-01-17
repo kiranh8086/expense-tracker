@@ -1,73 +1,144 @@
 # SplitTrip - Expense Tracker 💸
 
-A beautiful, mobile-friendly expense tracker for splitting trip costs with friends. Works offline and stores data locally on your device.
+A beautiful, mobile-friendly expense tracker for splitting trip costs with friends. Deployed on PythonAnywhere for free!
 
 ## Features
 
+- ✅ **Multiple Trips** - Track expenses for different trips
 - ✅ **Add Expenses** - Track who paid and for what
 - ✅ **Equal Splits** - Automatically split expenses among selected members
 - ✅ **Balance Tracking** - See who owes what at a glance
 - ✅ **Smart Settlements** - Optimized suggestions to minimize transactions
-- ✅ **Multiple Currencies** - Support for INR, USD, EUR, GBP, and more
-- ✅ **Offline Ready** - Works without internet, data saved locally
-- ✅ **iPhone Optimized** - Add to home screen for app-like experience
+- ✅ **Multiple Currencies** - Support for INR, USD, EUR, MYR, and more
+- ✅ **Mobile Optimized** - Works great on phones
+- ✅ **Cloud Storage** - Data stored in SQLite database
 
-## Quick Start
+## Live Demo
 
-1. Open `index.html` in your browser
-2. Set up your trip name, currency, and add 4-10 members
-3. Start adding expenses!
+🌐 **Your app will be live at:** `https://YOUR_USERNAME.pythonanywhere.com`
 
-### Add to iPhone Home Screen
+---
 
-1. Open the app in Safari
-2. Tap the Share button (square with arrow)
-3. Scroll down and tap "Add to Home Screen"
-4. Name it "SplitTrip" and tap Add
+## Deployment to PythonAnywhere (Free!)
+
+### Step 1: Create PythonAnywhere Account
+
+1. Go to [pythonanywhere.com](https://www.pythonanywhere.com)
+2. Click "Start running Python online" → Sign up (Free tier is fine!)
+3. Verify your email
+
+### Step 2: Upload Your Code
+
+**Option A: Via Git (Recommended)**
+
+1. In PythonAnywhere, go to **Consoles** → **Bash**
+2. Run these commands:
+
+```bash
+cd ~
+git clone https://github.com/kiranh8086/expense-tracker.git
+cd expense-tracker
+pip install --user -r requirements.txt
+```
+
+**Option B: Manual Upload**
+
+1. Go to **Files** tab
+2. Create folder: `expense-tracker`
+3. Upload all files: `app.py`, `requirements.txt`, `templates/`, `static/`
+
+### Step 3: Create Web App
+
+1. Go to **Web** tab
+2. Click **Add a new web app**
+3. Choose **Flask** and **Python 3.10**
+4. Set source code path: `/home/YOUR_USERNAME/expense-tracker`
+5. Set WSGI file path: Click the link to edit it
+
+### Step 4: Configure WSGI
+
+Replace the WSGI file contents with:
+
+```python
+import sys
+path = '/home/YOUR_USERNAME/expense-tracker'
+if path not in sys.path:
+    sys.path.append(path)
+
+from app import app as application
+```
+
+*(Replace YOUR_USERNAME with your actual PythonAnywhere username)*
+
+### Step 5: Reload & Test
+
+1. Click the **Reload** button (green button)
+2. Visit: `https://YOUR_USERNAME.pythonanywhere.com`
+3. 🎉 Your app is live!
+
+---
+
+## Local Development
+
+### Setup
+
+```bash
+cd expense-tracker
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### Run
+
+```bash
+python app.py
+```
+
+Open http://localhost:5000 in your browser.
+
+---
+
+## Project Structure
+
+```
+expense-tracker/
+├── app.py              # Flask backend with SQLite
+├── requirements.txt    # Python dependencies
+├── splittrip.db        # SQLite database (auto-created)
+├── templates/
+│   └── index.html      # Main HTML template
+├── static/
+│   ├── style.css       # Styles
+│   └── app.js          # Frontend JavaScript
+└── README.md
+```
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/trips` | List all trips |
+| POST | `/api/trips` | Create new trip |
+| GET | `/api/trips/:id` | Get trip with expenses |
+| PUT | `/api/trips/:id` | Update trip |
+| DELETE | `/api/trips/:id` | Delete trip |
+| GET | `/api/trips/:id/expenses` | List expenses |
+| POST | `/api/trips/:id/expenses` | Add expense |
+| DELETE | `/api/trips/:id/expenses/:eid` | Delete expense |
+| GET | `/api/trips/:id/balances` | Get balances |
+| GET | `/api/trips/:id/settlements` | Get settlements |
+
+---
 
 ## Tech Stack
 
-- Pure HTML, CSS, JavaScript (no frameworks)
-- LocalStorage for data persistence
-- Mobile-first responsive design
-- CSS custom properties for theming
-
-## Screenshots
-
-The app features:
-- Dark theme with purple accent colors
-- Bottom sheet modals for iOS-like UX
-- Floating action button for quick expense entry
-- Tabbed interface for Expenses, Balances, and Settlements
-
-## How It Works
-
-### Balance Calculation
-For each expense, the person who paid gets credit for the full amount, while everyone in the split owes their share.
-
-**Example:** If Alice pays ₹1000 for dinner split 4 ways:
-- Alice: +₹1000 (paid) - ₹250 (her share) = +₹750
-- Bob: -₹250
-- Carol: -₹250
-- Dave: -₹250
-
-### Settlement Algorithm
-The app uses a greedy algorithm to minimize the number of transactions needed to settle all debts.
-
-## Data Storage
-
-All data is stored in your browser's localStorage under the key `splittrip_data`. 
-
-To export your data, open browser console and run:
-```javascript
-console.log(localStorage.getItem('splittrip_data'));
-```
-
-## License
-
-MIT License - Feel free to use and modify!
+- **Backend:** Flask + SQLAlchemy
+- **Database:** SQLite
+- **Frontend:** Vanilla JavaScript
+- **Styling:** Custom CSS (mobile-first)
+- **Hosting:** PythonAnywhere (free tier)
 
 ---
 
 Made with ❤️ for easier trip expense management
-
