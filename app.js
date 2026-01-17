@@ -1,6 +1,7 @@
 /**
  * SplitTrip - Expense Tracker
  * A mobile-friendly app for splitting trip expenses equally
+ * Data stored in CSV format
  */
 
 // ===================================
@@ -18,9 +19,10 @@ const defaultData = {
     expenses: []
 };
 
-let appData = loadData();
+let appData = loadFromLocalStorage();
+let csvFileHandle = null; // For File System Access API
 
-function loadData() {
+function loadFromLocalStorage() {
     try {
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
@@ -29,16 +31,267 @@ function loadData() {
     } catch (e) {
         console.error('Error loading data:', e);
     }
-    return { ...defaultData };
+    return JSON.parse(JSON.stringify(defaultData));
 }
 
-function saveData() {
+function saveToLocalStorage() {
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
     } catch (e) {
         console.error('Error saving data:', e);
-        showToast('Error saving data', 'error');
     }
+}
+
+// ===================================
+// CSV Handling
+// ===================================
+
+/**
+ * CSV Format:
+ * Line 1: #TRIP,<name>,<currency>,<member1>|<member2>|...
+ * Line 2: #HEADERS,id,description,amount,paidBy,splitBetween,timestamp
+ * Line 3+: <expense data>
+ */
+
+function dataToCSV() {
+    const { trip, expenses } = appData;
+    const lines = [];
+    
+    // Trip info line
+    const membersStr = trip.members.join('|');
+    lines.push(`#TRIP,"${escapeCsvField(trip.name)}","${trip.currency}","${membersStr}"`);
+    
+    // Headers
+    lines.push('#HEADERS,id,description,amount,paidBy,splitBetween,timestamp,date');
+    
+    // Expense lines
+    expenses.forEach(exp => {
+        const splitStr = exp.splitBetween.join('|');
+        const date = new Date(exp.timestamp).toLocaleDateString('en-IN');
+        lines.push([
+            escapeCsvField(exp.id),
+            escapeCsvField(exp.description),
+            exp.amount,
+            escapeCsvField(exp.paidBy),
+            escapeCsvField(splitStr),
+            exp.timestamp,
+            date
+        ].join(','));
+    });
+    
+    return lines.join('\n');
+}
+
+function csvToData(csvText) {
+    const lines = csvText.trim().split('\n');
+    const newData = JSON.parse(JSON.stringify(defaultData));
+    
+    for (const line of lines) {
+        if (!line.trim()) continue;
+        
+        if (line.startsWith('#TRIP')) {
+            // Parse trip info: #TRIP,"name","currency","member1|member2"
+            const match = line.match(/#TRIP,(?:"([^"]*)"|([^,]*)),(?:"([^"]*)"|([^,]*)),(?:"([^"]*)"|([^,]*))/);
+            if (match) {
+                newData.trip.name = match[1] || match[2] || '';
+                newData.trip.currency = match[3] || match[4] || '₹';
+                const membersStr = match[5] || match[6] || '';
+                newData.trip.members = membersStr ? membersStr.split('|').filter(m => m.trim()) : [];
+            }
+        } else if (line.startsWith('#HEADERS')) {
+            // Skip headers line
+            continue;
+        } else {
+            // Parse expense line
+            const parts = parseCSVLine(line);
+            if (parts.length >= 6) {
+                newData.expenses.push({
+                    id: parts[0] || generateId(),
+                    description: parts[1] || '',
+                    amount: parseFloat(parts[2]) || 0,
+                    paidBy: parts[3] || '',
+                    splitBetween: parts[4] ? parts[4].split('|').filter(m => m.trim()) : [],
+                    timestamp: parseInt(parts[5]) || Date.now()
+                });
+            }
+        }
+    }
+    
+    return newData;
+}
+
+function parseCSVLine(line) {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        
+        if (char === '"') {
+            inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+            result.push(current);
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+    result.push(current);
+    
+    return result;
+}
+
+function escapeCsvField(str) {
+    if (str === null || str === undefined) return '';
+    const s = String(str);
+    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+        return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+}
+
+// Load CSV from file
+async function loadCSVFile() {
+    try {
+        // Check if File System Access API is available
+        if ('showOpenFilePicker' in window) {
+            const [fileHandle] = await window.showOpenFilePicker({
+                types: [{
+                    description: 'CSV Files',
+                    accept: { 'text/csv': ['.csv'] }
+                }],
+                multiple: false
+            });
+            
+            csvFileHandle = fileHandle;
+            const file = await fileHandle.getFile();
+            const text = await file.text();
+            
+            appData = csvToData(text);
+            saveToLocalStorage();
+            renderUI();
+            updateCsvStatus(fileHandle.name);
+            showToast('CSV loaded successfully!', 'success');
+            
+        } else {
+            // Fallback: Use file input
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.csv';
+            input.onchange = async (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const text = await file.text();
+                    appData = csvToData(text);
+                    saveToLocalStorage();
+                    renderUI();
+                    updateCsvStatus(file.name + ' (read-only)');
+                    showToast('CSV loaded! Export to save changes.', 'success');
+                }
+            };
+            input.click();
+        }
+    } catch (e) {
+        if (e.name !== 'AbortError') {
+            console.error('Error loading CSV:', e);
+            showToast('Error loading CSV file', 'error');
+        }
+    }
+}
+
+// Save CSV to file
+async function saveCSVFile() {
+    try {
+        const csvContent = dataToCSV();
+        
+        // Check if File System Access API is available
+        if ('showSaveFilePicker' in window) {
+            const options = {
+                suggestedName: `${appData.trip.name || 'expenses'}.csv`,
+                types: [{
+                    description: 'CSV Files',
+                    accept: { 'text/csv': ['.csv'] }
+                }]
+            };
+            
+            // If we have an existing file handle, try to write to it
+            let fileHandle;
+            if (csvFileHandle) {
+                try {
+                    // Verify we still have permission
+                    const permission = await csvFileHandle.queryPermission({ mode: 'readwrite' });
+                    if (permission === 'granted') {
+                        fileHandle = csvFileHandle;
+                    }
+                } catch (e) {
+                    // Permission lost, show picker
+                }
+            }
+            
+            if (!fileHandle) {
+                fileHandle = await window.showSaveFilePicker(options);
+                csvFileHandle = fileHandle;
+            }
+            
+            const writable = await fileHandle.createWritable();
+            await writable.write(csvContent);
+            await writable.close();
+            
+            updateCsvStatus(fileHandle.name);
+            showToast('CSV saved!', 'success');
+            
+        } else {
+            // Fallback: Download file
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${appData.trip.name || 'expenses'}.csv`;
+            link.click();
+            URL.revokeObjectURL(url);
+            showToast('CSV downloaded!', 'success');
+        }
+    } catch (e) {
+        if (e.name !== 'AbortError') {
+            console.error('Error saving CSV:', e);
+            showToast('Error saving CSV file', 'error');
+        }
+    }
+}
+
+// Auto-save to CSV if we have a file handle
+async function autoSaveCSV() {
+    if (csvFileHandle) {
+        try {
+            const permission = await csvFileHandle.queryPermission({ mode: 'readwrite' });
+            if (permission === 'granted') {
+                const csvContent = dataToCSV();
+                const writable = await csvFileHandle.createWritable();
+                await writable.write(csvContent);
+                await writable.close();
+            }
+        } catch (e) {
+            console.error('Auto-save failed:', e);
+        }
+    }
+}
+
+function updateCsvStatus(filename) {
+    const statusEl = document.getElementById('csvStatus');
+    if (filename) {
+        statusEl.textContent = `📄 ${filename}`;
+        statusEl.classList.add('active');
+    } else {
+        statusEl.textContent = 'No file loaded - using browser storage';
+        statusEl.classList.remove('active');
+    }
+}
+
+// Combined save function
+function saveData() {
+    saveToLocalStorage();
+    autoSaveCSV();
 }
 
 // ===================================
@@ -87,6 +340,8 @@ const elements = {
     membersInput: document.getElementById('membersInput'),
     addMemberBtn: document.getElementById('addMemberBtn'),
     clearDataBtn: document.getElementById('clearDataBtn'),
+    loadCsvBtn: document.getElementById('loadCsvBtn'),
+    saveCsvBtn: document.getElementById('saveCsvBtn'),
     
     // Toast
     toast: document.getElementById('toast')
@@ -134,6 +389,10 @@ function setupEventListeners() {
     elements.settingsForm.addEventListener('submit', handleSaveSettings);
     elements.addMemberBtn.addEventListener('click', addMemberRow);
     elements.clearDataBtn.addEventListener('click', handleClearData);
+    
+    // CSV buttons
+    elements.loadCsvBtn.addEventListener('click', loadCSVFile);
+    elements.saveCsvBtn.addEventListener('click', saveCSVFile);
     
     // Prevent body scroll when modal is open
     document.addEventListener('touchmove', (e) => {
@@ -626,8 +885,10 @@ function handleSaveSettings(e) {
 function handleClearData() {
     if (confirm('This will delete ALL data including expenses. Are you sure?')) {
         if (confirm('Really delete everything? This cannot be undone!')) {
-            appData = { ...defaultData, trip: { name: '', currency: '₹', members: [] }, expenses: [] };
-            saveData();
+            appData = JSON.parse(JSON.stringify(defaultData));
+            csvFileHandle = null;
+            saveToLocalStorage();
+            updateCsvStatus(null);
             renderUI();
             closeSettingsModal();
             showToast('All data cleared', 'success');
@@ -673,4 +934,3 @@ function showToast(message, type = 'info') {
 // ===================================
 
 document.addEventListener('DOMContentLoaded', init);
-

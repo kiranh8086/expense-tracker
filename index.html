@@ -164,8 +164,31 @@
                 </div>
                 <div class="form-actions">
                     <button type="submit" class="btn-primary">Save Settings</button>
-                    <button type="button" class="btn-danger" id="clearDataBtn">Clear All Data</button>
                 </div>
+                
+                <hr class="divider">
+                
+                <div class="form-group">
+                    <label>CSV Data File</label>
+                    <p class="form-hint">All data is stored in a CSV file you can open in Excel</p>
+                    <div class="csv-actions">
+                        <button type="button" class="btn-csv" id="loadCsvBtn">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                            </svg>
+                            Load CSV
+                        </button>
+                        <button type="button" class="btn-csv" id="saveCsvBtn">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                            </svg>
+                            Export CSV
+                        </button>
+                    </div>
+                    <p class="csv-status" id="csvStatus">No file loaded - using browser storage</p>
+                </div>
+                
+                <button type="button" class="btn-danger" id="clearDataBtn">Clear All Data</button>
             </form>
         </div>
     </div>
