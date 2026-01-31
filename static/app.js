@@ -3,16 +3,12 @@
  * Frontend JavaScript using Flask API
  */
 
-// ===================================
-// State
-// ===================================
-
+const PHONE_STORAGE_KEY = 'splittrip_phone';
+let loggedInPhone = null;
 let currentTrip = null;
 let currentTripId = null;
-
-// ===================================
-// API Helpers
-// ===================================
+let currentUserIsAdmin = false;
+let pendingTripId = null;
 
 async function api(endpoint, options = {}) {
     const defaultOptions = {
@@ -22,29 +18,30 @@ async function api(endpoint, options = {}) {
     };
     
     const response = await fetch(endpoint, { ...defaultOptions, ...options });
+    const data = await response.json().catch(() => ({}));
     
     if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Request failed' }));
-        throw new Error(error.error || 'Request failed');
+        const error = new Error(data.error || data.warning || 'Request failed');
+        error.status = response.status;
+        error.data = data;
+        throw error;
     }
     
-    return response.json();
+    return data;
 }
 
-// ===================================
-// DOM Elements
-// ===================================
-
 const elements = {
-    // Screens
     tripSelectorScreen: document.getElementById('tripSelectorScreen'),
     appContainer: document.getElementById('appContainer'),
-    
-    // Trip Selection
+    loginSection: document.getElementById('loginSection'),
+    loginPhone: document.getElementById('loginPhone'),
+    loginBtn: document.getElementById('loginBtn'),
+    loginStatus: document.getElementById('loginStatus'),
+    loginPhoneDisplay: document.getElementById('loginPhoneDisplay'),
+    logoutBtn: document.getElementById('logoutBtn'),
+    tripActions: document.getElementById('tripActions'),
     createNewTripBtn: document.getElementById('createNewTripBtn'),
     tripsList: document.getElementById('tripsList'),
-    
-    // New Trip Modal
     newTripModal: document.getElementById('newTripModal'),
     closeNewTripModal: document.getElementById('closeNewTripModal'),
     newTripForm: document.getElementById('newTripForm'),
@@ -52,40 +49,31 @@ const elements = {
     newTripCurrency: document.getElementById('newTripCurrency'),
     newTripMembersInput: document.getElementById('newTripMembersInput'),
     newTripAddMemberBtn: document.getElementById('newTripAddMemberBtn'),
-    
-    // Header
+    pinModal: document.getElementById('pinModal'),
+    closePinModal: document.getElementById('closePinModal'),
+    pinForm: document.getElementById('pinForm'),
+    tripPinInput: document.getElementById('tripPinInput'),
     backToTripsBtn: document.getElementById('backToTripsBtn'),
     settingsBtn: document.getElementById('settingsBtn'),
-    
-    // Trip Banner
     tripName: document.getElementById('tripName'),
     tripMembers: document.getElementById('tripMembers'),
     totalAmount: document.getElementById('totalAmount'),
-    
-    // Tabs
     tabs: document.querySelectorAll('.tab'),
     tabContents: document.querySelectorAll('.tab-content'),
-    
-    // Lists
     expensesList: document.getElementById('expensesList'),
     balancesList: document.getElementById('balancesList'),
     settleList: document.getElementById('settleList'),
-    
-    // FAB
     addExpenseBtn: document.getElementById('addExpenseBtn'),
-    
-    // Expense Modal
     expenseModal: document.getElementById('expenseModal'),
     closeExpenseModal: document.getElementById('closeExpenseModal'),
     expenseForm: document.getElementById('expenseForm'),
     expenseDesc: document.getElementById('expenseDesc'),
     expenseAmount: document.getElementById('expenseAmount'),
+    expenseCategory: document.getElementById('expenseCategory'),
     paidBy: document.getElementById('paidBy'),
     splitOptions: document.getElementById('splitOptions'),
     selectAllBtn: document.getElementById('selectAllBtn'),
     currencySymbol: document.getElementById('currencySymbol'),
-    
-    // Settings Modal
     settingsModal: document.getElementById('settingsModal'),
     closeSettingsModal: document.getElementById('closeSettingsModal'),
     settingsForm: document.getElementById('settingsForm'),
@@ -94,55 +82,46 @@ const elements = {
     membersInput: document.getElementById('membersInput'),
     addMemberBtn: document.getElementById('addMemberBtn'),
     deleteTripBtn: document.getElementById('deleteTripBtn'),
-    
-    // Toast
     toast: document.getElementById('toast')
 };
 
-// ===================================
-// Initialization
-// ===================================
-
 async function init() {
     setupEventListeners();
-    await loadTrips();
+    const savedPhone = localStorage.getItem(PHONE_STORAGE_KEY);
+    if (savedPhone) {
+        await loginWithPhone(savedPhone, true);
+    } else {
+        showLogin();
+    }
 }
 
 function setupEventListeners() {
-    // Trip Selection
+    elements.loginBtn.addEventListener('click', handleLogin);
+    elements.logoutBtn.addEventListener('click', handleLogout);
     elements.createNewTripBtn.addEventListener('click', openNewTripModal);
-    
-    // New Trip Modal
     elements.closeNewTripModal.addEventListener('click', closeNewTripModal);
     elements.newTripModal.addEventListener('click', (e) => {
         if (e.target === elements.newTripModal) closeNewTripModal();
     });
     elements.newTripForm.addEventListener('submit', handleCreateNewTrip);
     elements.newTripAddMemberBtn.addEventListener('click', () => addMemberRowTo(elements.newTripMembersInput));
-    
-    // Back to trips
+    elements.closePinModal.addEventListener('click', closePinModal);
+    elements.pinModal.addEventListener('click', (e) => {
+        if (e.target === elements.pinModal) closePinModal();
+    });
+    elements.pinForm.addEventListener('submit', handleVerifyTrip);
     elements.backToTripsBtn.addEventListener('click', backToTripSelector);
-    
-    // Tabs
     elements.tabs.forEach(tab => {
         tab.addEventListener('click', () => switchTab(tab.dataset.tab));
     });
-    
-    // FAB
     elements.addExpenseBtn.addEventListener('click', openExpenseModal);
-    
-    // Settings
     elements.settingsBtn.addEventListener('click', openSettingsModal);
-    
-    // Expense Modal
     elements.closeExpenseModal.addEventListener('click', closeExpenseModal);
     elements.expenseModal.addEventListener('click', (e) => {
         if (e.target === elements.expenseModal) closeExpenseModal();
     });
     elements.expenseForm.addEventListener('submit', handleAddExpense);
     elements.selectAllBtn.addEventListener('click', toggleSelectAll);
-    
-    // Settings Modal
     elements.closeSettingsModal.addEventListener('click', closeSettingsModal);
     elements.settingsModal.addEventListener('click', (e) => {
         if (e.target === elements.settingsModal) closeSettingsModal();
@@ -152,17 +131,63 @@ function setupEventListeners() {
     elements.deleteTripBtn.addEventListener('click', handleDeleteTrip);
 }
 
-// ===================================
-// Trip List
-// ===================================
+function showLogin() {
+    elements.loginSection.style.display = 'block';
+    elements.loginStatus.style.display = 'none';
+    elements.tripActions.style.display = 'none';
+}
+
+function showTripSelection() {
+    elements.loginSection.style.display = 'none';
+    elements.loginStatus.style.display = 'flex';
+    elements.tripActions.style.display = 'block';
+    elements.loginPhoneDisplay.textContent = loggedInPhone ? `Logged in: ${loggedInPhone}` : '';
+}
+
+async function handleLogin() {
+    const phone = (elements.loginPhone.value || '').trim();
+    if (!phone) {
+        showToast('Please enter your phone number', 'error');
+        return;
+    }
+    await loginWithPhone(phone, false);
+}
+
+async function loginWithPhone(phone, silent) {
+    try {
+        const trips = await api('/api/login', {
+            method: 'POST',
+            body: JSON.stringify({ phone })
+        });
+        loggedInPhone = phone;
+        localStorage.setItem(PHONE_STORAGE_KEY, phone);
+        showTripSelection();
+        renderTripsList(trips);
+    } catch (error) {
+        if (!silent) {
+            showToast(error.message, 'error');
+        }
+        showLogin();
+    }
+}
+
+async function handleLogout() {
+    try {
+        await api('/api/logout', { method: 'POST' });
+    } catch (error) {
+        // ignore
+    }
+    loggedInPhone = null;
+    localStorage.removeItem(PHONE_STORAGE_KEY);
+    showLogin();
+}
 
 async function loadTrips() {
     try {
         const trips = await api('/api/trips');
         renderTripsList(trips);
     } catch (error) {
-        showToast('Error loading trips', 'error');
-        console.error(error);
+        showLogin();
     }
 }
 
@@ -186,15 +211,10 @@ function renderTripsList(trips) {
         </div>
     `).join('');
     
-    // Add click handlers
     elements.tripsList.querySelectorAll('.trip-card').forEach(card => {
-        card.addEventListener('click', () => openTrip(parseInt(card.dataset.id)));
+        card.addEventListener('click', () => openTripPin(card.dataset.id));
     });
 }
-
-// ===================================
-// Screen Navigation
-// ===================================
 
 function showMainApp() {
     elements.tripSelectorScreen.style.display = 'none';
@@ -207,20 +227,23 @@ function backToTripSelector() {
     elements.tripSelectorScreen.style.display = 'block';
     currentTrip = null;
     currentTripId = null;
+    currentUserIsAdmin = false;
     loadTrips();
 }
 
-// ===================================
-// New Trip Modal
-// ===================================
-
 function openNewTripModal() {
+    if (!loggedInPhone) {
+        showToast('Please login with your phone first', 'error');
+        return;
+    }
     elements.newTripForm.reset();
     elements.newTripMembersInput.innerHTML = '';
     
-    // Add 4 default member rows
-    for (let i = 0; i < 4; i++) {
-        addMemberRowTo(elements.newTripMembersInput, false, i === 0);
+    for (let i = 0; i < 2; i++) {
+        const isAdminRow = i === 0;
+        addMemberRowTo(elements.newTripMembersInput, false, isAdminRow, {
+            phone: isAdminRow ? loggedInPhone : ''
+        });
     }
     
     elements.newTripModal.classList.add('active');
@@ -237,24 +260,31 @@ async function handleCreateNewTrip(e) {
     const tripName = elements.newTripName.value.trim();
     const currency = elements.newTripCurrency.value;
     
-    const memberInputs = elements.newTripMembersInput.querySelectorAll('.member-name');
-    const members = Array.from(memberInputs)
-        .map(input => input.value.trim())
-        .filter(name => name.length > 0);
+    const memberRows = elements.newTripMembersInput.querySelectorAll('.member-row');
+    const members = Array.from(memberRows).map(row => ({
+        name: row.querySelector('.member-name').value.trim(),
+        phone: row.querySelector('.member-phone').value.trim(),
+        pin: row.querySelector('.member-pin').value.trim()
+    })).filter(m => m.name && m.phone && m.pin);
     
     if (!tripName) {
         showToast('Please enter a trip name', 'error');
         return;
     }
     
-    if (members.length < 4) {
-        showToast('Please add at least 4 members', 'error');
+    if (members.length < 2) {
+        showToast('Please add at least 2 members', 'error');
         return;
     }
     
-    const uniqueMembers = [...new Set(members)];
-    if (uniqueMembers.length !== members.length) {
+    const uniqueNames = new Set(members.map(m => m.name));
+    const uniquePhones = new Set(members.map(m => m.phone));
+    if (uniqueNames.size !== members.length) {
         showToast('Member names must be unique', 'error');
+        return;
+    }
+    if (uniquePhones.size !== members.length) {
+        showToast('Phone numbers must be unique', 'error');
         return;
     }
     
@@ -264,36 +294,59 @@ async function handleCreateNewTrip(e) {
             body: JSON.stringify({
                 name: tripName,
                 currency: currency,
-                members: uniqueMembers
+                members: members,
+                admin_phone: loggedInPhone
             })
         });
         
         closeNewTripModal();
-        await openTrip(trip.id);
+        currentTrip = trip;
+        currentTripId = trip.id;
+        currentUserIsAdmin = trip.current_user_is_admin || false;
+        showMainApp();
         showToast('Trip created!', 'success');
     } catch (error) {
         showToast(error.message, 'error');
     }
 }
 
-// ===================================
-// Open Trip
-// ===================================
-
-async function openTrip(tripId) {
-    try {
-        currentTrip = await api(`/api/trips/${tripId}`);
-        currentTripId = tripId;
-        showMainApp();
-    } catch (error) {
-        showToast('Error loading trip', 'error');
-        console.error(error);
-    }
+function openTripPin(tripId) {
+    pendingTripId = tripId;
+    elements.tripPinInput.value = '';
+    elements.pinModal.classList.add('active');
+    elements.tripPinInput.focus();
 }
 
-// ===================================
-// Tab Management
-// ===================================
+function closePinModal() {
+    elements.pinModal.classList.remove('active');
+    pendingTripId = null;
+}
+
+async function handleVerifyTrip(e) {
+    e.preventDefault();
+    if (!pendingTripId) return;
+    
+    const pin = elements.tripPinInput.value.trim();
+    if (!pin) {
+        showToast('Please enter your PIN', 'error');
+        return;
+    }
+    
+    try {
+        const trip = await api(`/api/trips/${pendingTripId}/verify`, {
+            method: 'POST',
+            body: JSON.stringify({ phone: loggedInPhone, pin })
+        });
+        
+        currentTrip = trip;
+        currentTripId = trip.id;
+        currentUserIsAdmin = trip.current_user_is_admin || false;
+        closePinModal();
+        showMainApp();
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
 
 function switchTab(tabName) {
     elements.tabs.forEach(tab => {
@@ -307,10 +360,6 @@ function switchTab(tabName) {
     if (tabName === 'balances') renderBalances();
     if (tabName === 'settle') renderSettlements();
 }
-
-// ===================================
-// UI Rendering
-// ===================================
 
 function renderUI() {
     renderTripBanner();
@@ -356,6 +405,7 @@ function renderExpenses() {
                 <span class="expense-desc">${escapeHtml(expense.description)}</span>
                 <div class="expense-meta">
                     <span class="expense-payer">Paid by ${escapeHtml(expense.paid_by)}</span>
+                    <span>• ${escapeHtml(expense.category || 'Miscellaneous')}</span>
                     <span>• Split ${expense.split_between.length} ways</span>
                 </div>
             </div>
@@ -452,10 +502,6 @@ function updateCurrencySymbols() {
     });
 }
 
-// ===================================
-// Expense Modal
-// ===================================
-
 function openExpenseModal() {
     if (!currentTrip || currentTrip.members.length === 0) {
         showToast('Please add members first', 'error');
@@ -477,12 +523,12 @@ function populateExpenseForm() {
     const members = currentTrip.members || [];
     
     elements.paidBy.innerHTML = '<option value="">Select who paid</option>' +
-        members.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+        members.map(m => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</option>`).join('');
     
     elements.splitOptions.innerHTML = members.map(m => `
         <label class="split-option">
-            <input type="checkbox" name="split" value="${escapeHtml(m)}" checked>
-            <span>${escapeHtml(m)}</span>
+            <input type="checkbox" name="split" value="${escapeHtml(m.name)}" checked>
+            <span>${escapeHtml(m.name)}</span>
         </label>
     `).join('');
 }
@@ -501,6 +547,7 @@ async function handleAddExpense(e) {
     const description = elements.expenseDesc.value.trim();
     const amount = parseFloat(elements.expenseAmount.value);
     const paidBy = elements.paidBy.value;
+    const category = elements.expenseCategory.value;
     
     const splitCheckboxes = elements.splitOptions.querySelectorAll('input[type="checkbox"]:checked');
     const splitBetween = Array.from(splitCheckboxes).map(cb => cb.value);
@@ -531,12 +578,12 @@ async function handleAddExpense(e) {
             body: JSON.stringify({
                 description,
                 amount,
+                category,
                 paid_by: paidBy,
                 split_between: splitBetween
             })
         });
         
-        // Add to local state
         if (!currentTrip.expenses) currentTrip.expenses = [];
         currentTrip.expenses.push(expense);
         
@@ -556,7 +603,6 @@ async function deleteExpense(expenseId) {
             method: 'DELETE'
         });
         
-        // Remove from local state
         currentTrip.expenses = currentTrip.expenses.filter(e => e.id !== expenseId);
         
         renderUI();
@@ -567,10 +613,6 @@ async function deleteExpense(expenseId) {
 }
 
 window.deleteExpense = deleteExpense;
-
-// ===================================
-// Settings Modal
-// ===================================
 
 function openSettingsModal() {
     populateSettingsForm();
@@ -591,16 +633,29 @@ function populateSettingsForm() {
     
     if (currentTrip.members && currentTrip.members.length > 0) {
         currentTrip.members.forEach((member, index) => {
-            addMemberRowTo(elements.membersInput, true, index === 0, member);
+            addMemberRowTo(elements.membersInput, true, index === 0, {
+                name: member.name,
+                phone: member.phone,
+                pin: ''
+            });
         });
     } else {
-        for (let i = 0; i < 4; i++) {
+        for (let i = 0; i < 2; i++) {
             addMemberRowTo(elements.membersInput, true, i === 0);
         }
     }
+    
+    const isAdmin = currentUserIsAdmin;
+    elements.addMemberBtn.style.display = isAdmin ? 'block' : 'none';
+    elements.deleteTripBtn.style.display = isAdmin ? 'block' : 'none';
+    elements.settingsForm.querySelector('.btn-primary').style.display = isAdmin ? 'block' : 'none';
+    
+    elements.membersInput.querySelectorAll('input').forEach(input => {
+        input.disabled = !isAdmin;
+    });
 }
 
-function addMemberRowTo(container, isSettings = false, isFirst = false, value = '') {
+function addMemberRowTo(container, isSettings = false, isAdminRow = false, preset = {}) {
     const memberRows = container.querySelectorAll('.member-row').length;
     
     if (memberRows >= 10) {
@@ -611,17 +666,24 @@ function addMemberRowTo(container, isSettings = false, isFirst = false, value = 
     const row = document.createElement('div');
     row.className = 'member-row';
     row.innerHTML = `
-        <input type="text" class="member-name" placeholder="Member ${memberRows + 1} name" value="${escapeHtml(value)}" required>
+        <input type="text" class="member-name" placeholder="Name" value="${escapeHtml(preset.name || '')}" required>
+        <input type="tel" class="member-phone" placeholder="Phone" value="${escapeHtml(preset.phone || '')}" required>
+        <input type="password" class="member-pin pin-input" placeholder="PIN" value="${escapeHtml(preset.pin || '')}" ${isSettings ? '' : 'required'}>
         <button type="button" class="btn-remove-member">&times;</button>
     `;
     
+    const phoneInput = row.querySelector('.member-phone');
+    if (isAdminRow && preset.phone) {
+        phoneInput.readOnly = true;
+    }
+    
     row.querySelector('.btn-remove-member').addEventListener('click', () => {
         const rows = container.querySelectorAll('.member-row');
-        if (rows.length > 4) {
+        if (rows.length > 2) {
             row.remove();
             updateMemberRowsState(container);
         } else {
-            showToast('Minimum 4 members required', 'error');
+            showToast('Minimum 2 members required', 'error');
         }
     });
     
@@ -631,47 +693,56 @@ function addMemberRowTo(container, isSettings = false, isFirst = false, value = 
 
 function updateMemberRowsState(container) {
     const rows = container.querySelectorAll('.member-row');
-    rows.forEach((row, index) => {
-        const input = row.querySelector('.member-name');
+    rows.forEach((row) => {
         const btn = row.querySelector('.btn-remove-member');
-        input.placeholder = `Member ${index + 1} name`;
-        btn.disabled = rows.length <= 4;
+        btn.disabled = rows.length <= 2;
     });
 }
 
 async function handleSaveSettings(e) {
     e.preventDefault();
     
+    if (!currentUserIsAdmin) {
+        showToast('Admin access required', 'error');
+        return;
+    }
+    
     const tripName = elements.tripNameInput.value.trim();
     const currency = elements.currencySelect.value;
     
-    const memberInputs = elements.membersInput.querySelectorAll('.member-name');
-    const members = Array.from(memberInputs)
-        .map(input => input.value.trim())
-        .filter(name => name.length > 0);
+    const memberRows = elements.membersInput.querySelectorAll('.member-row');
+    const members = Array.from(memberRows).map(row => ({
+        name: row.querySelector('.member-name').value.trim(),
+        phone: row.querySelector('.member-phone').value.trim(),
+        pin: row.querySelector('.member-pin').value.trim()
+    })).filter(m => m.name && m.phone);
     
     if (!tripName) {
         showToast('Please enter a trip name', 'error');
         return;
     }
     
-    if (members.length < 4) {
-        showToast('Please add at least 4 members', 'error');
+    if (members.length < 2) {
+        showToast('Please add at least 2 members', 'error');
         return;
     }
     
-    const uniqueMembers = [...new Set(members)];
-    if (uniqueMembers.length !== members.length) {
+    const uniqueNames = new Set(members.map(m => m.name));
+    const uniquePhones = new Set(members.map(m => m.phone));
+    if (uniqueNames.size !== members.length) {
         showToast('Member names must be unique', 'error');
+        return;
+    }
+    if (uniquePhones.size !== members.length) {
+        showToast('Phone numbers must be unique', 'error');
         return;
     }
     
     try {
-        // Check if members changed
-        const oldMembers = new Set(currentTrip.members);
-        const newMembers = new Set(uniqueMembers);
-        const membersChanged = oldMembers.size !== newMembers.size || 
-            [...oldMembers].some(m => !newMembers.has(m));
+        const oldPhones = new Set((currentTrip.members || []).map(m => m.phone));
+        const newPhones = new Set(members.map(m => m.phone));
+        const membersChanged = oldPhones.size !== newPhones.size ||
+            [...oldPhones].some(phone => !newPhones.has(phone));
         
         let confirmClear = false;
         if (membersChanged && currentTrip.expenses && currentTrip.expenses.length > 0) {
@@ -681,23 +752,25 @@ async function handleSaveSettings(e) {
             confirmClear = true;
         }
         
-        const updatedTrip = await api(`/api/trips/${currentTripId}`, {
+        await api(`/api/trips/${currentTripId}`, {
             method: 'PUT',
             body: JSON.stringify({
                 name: tripName,
                 currency: currency,
-                members: uniqueMembers,
+                members: members,
+                admin_phone: loggedInPhone,
                 confirm_clear_expenses: confirmClear
             })
         });
         
-        // Reload trip data
-        await openTrip(currentTripId);
+        currentTrip = await api(`/api/trips/${currentTripId}`);
+        currentUserIsAdmin = currentTrip.current_user_is_admin || false;
         closeSettingsModal();
+        renderUI();
         showToast('Settings saved!', 'success');
     } catch (error) {
-        if (error.message.includes('needs_confirmation')) {
-            // Handle confirmation needed
+        if (error.status === 409 && error.data && error.data.needs_confirmation) {
+            showToast('Please confirm member changes', 'error');
         } else {
             showToast(error.message, 'error');
         }
@@ -720,10 +793,6 @@ async function handleDeleteTrip() {
         showToast(error.message, 'error');
     }
 }
-
-// ===================================
-// Utility Functions
-// ===================================
 
 function formatNumber(num) {
     return num.toLocaleString('en-IN', {
@@ -748,9 +817,4 @@ function showToast(message, type = 'info') {
     }, 3000);
 }
 
-// ===================================
-// Start the app
-// ===================================
-
 document.addEventListener('DOMContentLoaded', init);
-

@@ -24,19 +24,34 @@
             </div>
             
             <div class="trip-selector-content">
-                <button class="btn-new-trip" id="createNewTripBtn">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="12" y1="5" x2="12" y2="19"></line>
-                        <line x1="5" y1="12" x2="19" y2="12"></line>
-                    </svg>
-                    Create New Trip
-                </button>
-                
-                <div class="existing-trips-section">
-                    <h3>Your Trips</h3>
-                    <div class="trips-list" id="tripsList">
-                        <div class="loading-state">
-                            <p>Loading trips...</p>
+                <div class="login-section" id="loginSection">
+                    <div class="login-card">
+                        <label for="loginPhone">Phone Number</label>
+                        <input type="tel" id="loginPhone" placeholder="Enter phone number" autocomplete="tel">
+                        <button class="btn-primary" id="loginBtn">Continue</button>
+                    </div>
+                </div>
+
+                <div class="login-status" id="loginStatus" style="display: none;">
+                    <span class="login-phone" id="loginPhoneDisplay"></span>
+                    <button class="btn-link" id="logoutBtn">Logout</button>
+                </div>
+
+                <div id="tripActions" style="display: none;">
+                    <button class="btn-new-trip" id="createNewTripBtn">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                        Create New Trip
+                    </button>
+                    
+                    <div class="existing-trips-section">
+                        <h3>Your Trips</h3>
+                        <div class="trips-list" id="tripsList">
+                            <div class="loading-state">
+                                <p>Loading trips...</p>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -153,13 +168,31 @@
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>Members (4-10 people)</label>
+                    <label>Members (2-10 people)</label>
+                    <p class="form-hint">Each member needs a phone number and PIN</p>
                     <div class="members-input" id="newTripMembersInput">
                         <!-- Member rows added dynamically -->
                     </div>
                     <button type="button" class="btn-secondary" id="newTripAddMemberBtn">+ Add Member</button>
                 </div>
                 <button type="submit" class="btn-primary">Create Trip</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Trip PIN Modal -->
+    <div class="modal-overlay" id="pinModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Enter Trip PIN</h2>
+                <button class="btn-close" id="closePinModal">&times;</button>
+            </div>
+            <form id="pinForm">
+                <div class="form-group">
+                    <label for="tripPinInput">PIN</label>
+                    <input type="password" id="tripPinInput" placeholder="Enter your PIN" inputmode="numeric" required>
+                </div>
+                <button type="submit" class="btn-primary">Access Trip</button>
             </form>
         </div>
     </div>
@@ -182,6 +215,15 @@
                         <span class="currency-symbol" id="currencySymbol">₹</span>
                         <input type="number" id="expenseAmount" placeholder="0" min="0" step="0.01" required>
                     </div>
+                </div>
+                <div class="form-group">
+                    <label for="expenseCategory">Category</label>
+                    <select id="expenseCategory" required>
+                        <option value="Travel">Travel</option>
+                        <option value="Food">Food</option>
+                        <option value="Activity">Activity</option>
+                        <option value="Miscellaneous">Miscellaneous</option>
+                    </select>
                 </div>
                 <div class="form-group">
                     <label for="paidBy">Paid by</label>
@@ -228,7 +270,8 @@
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>Members (4-10 people)</label>
+                    <label>Members (2-10 people)</label>
+                    <p class="form-hint">Only admins can edit participant phone/PIN</p>
                     <div class="members-input" id="membersInput">
                         <!-- Member rows added dynamically -->
                     </div>

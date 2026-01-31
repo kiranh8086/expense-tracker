@@ -5,6 +5,302 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0d0d14">
+    <title>SplitTrip - Expense Tracker</title>
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💸</text></svg>">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Trip Selector Screen (shows first) -->
+    <div class="trip-selector-screen" id="tripSelectorScreen">
+        <div class="trip-selector-container">
+            <div class="trip-selector-header">
+                <span class="trip-selector-icon">💸</span>
+                <h1>SplitTrip</h1>
+                <p>Track & split trip expenses with friends</p>
+            </div>
+            
+            <div class="trip-selector-content">
+                <div class="login-section" id="loginSection">
+                    <div class="login-card">
+                        <label for="loginPhone">Phone Number</label>
+                        <input type="tel" id="loginPhone" placeholder="Enter phone number" autocomplete="tel">
+                        <button class="btn-primary" id="loginBtn">Continue</button>
+                    </div>
+                </div>
+
+                <div class="login-status" id="loginStatus" style="display: none;">
+                    <span class="login-phone" id="loginPhoneDisplay"></span>
+                    <button class="btn-link" id="logoutBtn">Logout</button>
+                </div>
+
+                <div id="tripActions" style="display: none;">
+                    <button class="btn-new-trip" id="createNewTripBtn">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                        Create New Trip
+                    </button>
+                    
+                    <div class="existing-trips-section">
+                        <h3>Your Trips</h3>
+                        <div class="trips-list" id="tripsList">
+                            <div class="loading-state">
+                                <p>Loading trips...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App (hidden until trip selected) -->
+    <div class="app-container" id="appContainer" style="display: none;">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <button class="btn-back" id="backToTripsBtn" aria-label="Back to trips">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M19 12H5M12 19l-7-7 7-7"/>
+                    </svg>
+                </button>
+                <h1 class="logo">💸 SplitTrip</h1>
+                <button class="btn-icon" id="settingsBtn" aria-label="Settings">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"></path>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Trip Info Banner -->
+            <section class="trip-banner" id="tripBanner">
+                <div class="trip-info">
+                    <span class="trip-name" id="tripName">No Trip Yet</span>
+                    <span class="trip-members" id="tripMembers">Add members to start</span>
+                </div>
+                <div class="trip-total">
+                    <span class="total-label">Total Spent</span>
+                    <span class="total-amount" id="totalAmount">₹0</span>
+                </div>
+            </section>
+
+            <!-- Tab Navigation -->
+            <nav class="tabs">
+                <button class="tab active" data-tab="expenses">Expenses</button>
+                <button class="tab" data-tab="balances">Balances</button>
+                <button class="tab" data-tab="settle">Settle Up</button>
+            </nav>
+
+            <!-- Expenses Tab -->
+            <section class="tab-content active" id="expenses-tab">
+                <div class="expenses-list" id="expensesList">
+                    <div class="empty-state">
+                        <span class="empty-icon">🧾</span>
+                        <p>No expenses yet</p>
+                        <p class="empty-hint">Tap + to add your first expense</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Balances Tab -->
+            <section class="tab-content" id="balances-tab">
+                <div class="balances-list" id="balancesList">
+                    <div class="empty-state">
+                        <span class="empty-icon">⚖️</span>
+                        <p>Add expenses to see balances</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Settle Tab -->
+            <section class="tab-content" id="settle-tab">
+                <div class="settle-list" id="settleList">
+                    <div class="empty-state">
+                        <span class="empty-icon">🤝</span>
+                        <p>Nothing to settle yet</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Floating Action Button -->
+        <button class="fab" id="addExpenseBtn" aria-label="Add Expense">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+        </button>
+    </div>
+
+    <!-- New Trip Modal -->
+    <div class="modal-overlay" id="newTripModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Create New Trip</h2>
+                <button class="btn-close" id="closeNewTripModal">&times;</button>
+            </div>
+            <form id="newTripForm">
+                <div class="form-group">
+                    <label for="newTripName">Trip Name</label>
+                    <input type="text" id="newTripName" placeholder="e.g., Goa Trip 2026" required>
+                </div>
+                <div class="form-group">
+                    <label for="newTripCurrency">Currency</label>
+                    <select id="newTripCurrency">
+                        <option value="₹">₹ INR (Indian Rupee)</option>
+                        <option value="$">$ USD (US Dollar)</option>
+                        <option value="€">€ EUR (Euro)</option>
+                        <option value="£">£ GBP (British Pound)</option>
+                        <option value="¥">¥ JPY (Japanese Yen)</option>
+                        <option value="A$">A$ AUD (Australian Dollar)</option>
+                        <option value="C$">C$ CAD (Canadian Dollar)</option>
+                        <option value="฿">฿ THB (Thai Baht)</option>
+                        <option value="RM">RM MYR (Malaysian Ringgit)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Members (2-10 people)</label>
+                    <p class="form-hint">Each member needs a phone number and PIN</p>
+                    <div class="members-input" id="newTripMembersInput">
+                        <!-- Member rows added dynamically -->
+                    </div>
+                    <button type="button" class="btn-secondary" id="newTripAddMemberBtn">+ Add Member</button>
+                </div>
+                <button type="submit" class="btn-primary">Create Trip</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Trip PIN Modal -->
+    <div class="modal-overlay" id="pinModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Enter Trip PIN</h2>
+                <button class="btn-close" id="closePinModal">&times;</button>
+            </div>
+            <form id="pinForm">
+                <div class="form-group">
+                    <label for="tripPinInput">PIN</label>
+                    <input type="password" id="tripPinInput" placeholder="Enter your PIN" inputmode="numeric" required>
+                </div>
+                <button type="submit" class="btn-primary">Access Trip</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Expense Modal -->
+    <div class="modal-overlay" id="expenseModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Add Expense</h2>
+                <button class="btn-close" id="closeExpenseModal">&times;</button>
+            </div>
+            <form id="expenseForm">
+                <div class="form-group">
+                    <label for="expenseDesc">What was it for?</label>
+                    <input type="text" id="expenseDesc" placeholder="e.g., Dinner, Taxi, Hotel..." required>
+                </div>
+                <div class="form-group">
+                    <label for="expenseAmount">Amount</label>
+                    <div class="amount-input">
+                        <span class="currency-symbol" id="currencySymbol">₹</span>
+                        <input type="number" id="expenseAmount" placeholder="0" min="0" step="0.01" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="expenseCategory">Category</label>
+                    <select id="expenseCategory" required>
+                        <option value="Travel">Travel</option>
+                        <option value="Food">Food</option>
+                        <option value="Activity">Activity</option>
+                        <option value="Miscellaneous">Miscellaneous</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="paidBy">Paid by</label>
+                    <select id="paidBy" required>
+                        <option value="">Select who paid</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Split between</label>
+                    <div class="split-options" id="splitOptions">
+                        <!-- Members checkboxes will be added here -->
+                    </div>
+                    <button type="button" class="btn-link" id="selectAllBtn">Select All</button>
+                </div>
+                <button type="submit" class="btn-primary">Add Expense</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay" id="settingsModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Trip Settings</h2>
+                <button class="btn-close" id="closeSettingsModal">&times;</button>
+            </div>
+            <form id="settingsForm">
+                <div class="form-group">
+                    <label for="tripNameInput">Trip Name</label>
+                    <input type="text" id="tripNameInput" placeholder="e.g., Goa Trip 2026" required>
+                </div>
+                <div class="form-group">
+                    <label for="currencySelect">Currency</label>
+                    <select id="currencySelect">
+                        <option value="₹">₹ INR (Indian Rupee)</option>
+                        <option value="$">$ USD (US Dollar)</option>
+                        <option value="€">€ EUR (Euro)</option>
+                        <option value="£">£ GBP (British Pound)</option>
+                        <option value="¥">¥ JPY (Japanese Yen)</option>
+                        <option value="A$">A$ AUD (Australian Dollar)</option>
+                        <option value="C$">C$ CAD (Canadian Dollar)</option>
+                        <option value="฿">฿ THB (Thai Baht)</option>
+                        <option value="RM">RM MYR (Malaysian Ringgit)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Members (2-10 people)</label>
+                    <p class="form-hint">Only admins can edit participant phone/PIN</p>
+                    <div class="members-input" id="membersInput">
+                        <!-- Member rows added dynamically -->
+                    </div>
+                    <button type="button" class="btn-secondary" id="addMemberBtn">+ Add Member</button>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">Save Settings</button>
+                </div>
+                
+                <hr class="divider">
+                
+                <button type="button" class="btn-danger" id="deleteTripBtn">Delete This Trip</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast" id="toast"></div>
+
+    <script src="static/app.js"></script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#1a1a2e">
     <title>SplitTrip - Expense Tracker</title>
     <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💸</text></svg>">
@@ -172,7 +468,7 @@
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>Members (4-10 people)</label>
+                    <label>Members (2-10 people)</label>
                     <div class="members-input" id="newTripMembersInput">
                         <!-- Member rows added dynamically -->
                     </div>
@@ -246,7 +542,7 @@
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>Members (4-10 people)</label>
+                    <label>Members (2-10 people)</label>
                     <div class="members-input" id="membersInput">
                         <div class="member-row">
                             <input type="text" class="member-name" placeholder="Member 1 name" required>
